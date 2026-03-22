@@ -1,133 +1,57 @@
 import streamlit as st
 import cv2
 import numpy as np
-import mediapipe as mp
 from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 
-# Page config
-st.set_page_config(page_title="Virtual Lipstick Try-On", layout="wide")
+# Title
+st.title("🎨 Sketch to Image Converter")
 
-st.title("💄 Virtual Lipstick Try-On App")
+st.write("Draw a sketch and convert it into a stylized image!")
 
-# -------------------------------
-# ✅ Load MediaPipe with caching
-# -------------------------------
-@st.cache_resource
-def load_face_mesh():
-    import mediapipe as mp  # import INSIDE function (important)
-    
-    mp_face_mesh = mp.solutions.face_mesh
-    return mp_face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=1,
-        refine_landmarks=True
-    )
+# Canvas for drawing
+canvas_result = st_canvas(
+    fill_color="black",
+    stroke_width=5,
+    stroke_color="white",
+    background_color="black",
+    height=300,
+    width=300,
+    drawing_mode="freedraw",
+    key="canvas",
+)
 
-face_mesh = load_face_mesh()
+# Function to convert sketch → image
+def process_image(img):
+    # Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-# -------------------------------
-# Lipstick Shades
-# -------------------------------
-lip_colors = {
-    "Red ❤️": (0, 0, 255),
-    "Pink 💗": (147, 20, 255),
-    "Nude 🤎": (180, 140, 120),
-    "Plum 🍇": (80, 0, 120)
-}
+    # Edge detection
+    edges = cv2.Canny(gray, 50, 150)
 
-# Lip landmarks (MediaPipe)
-LIP_IDS = [61,146,91,181,84,17,314,405,321,375,291]
+    # Invert edges
+    edges_inv = cv2.bitwise_not(edges)
 
-# -------------------------------
-# Apply Lipstick Function
-# -------------------------------
-def apply_lipstick(image, landmarks, color):
-    lips_points = []
+    # Apply color map (fake "realistic" effect)
+    colored = cv2.applyColorMap(edges_inv, cv2.COLORMAP_JET)
 
-    for i in LIP_IDS:
-        x = int(landmarks[i].x * image.shape[1])
-        y = int(landmarks[i].y * image.shape[0])
-        lips_points.append((x, y))
+    return edges, colored
 
-    mask = np.zeros_like(image)
-    cv2.fillPoly(mask, [np.array(lips_points)], color)
+# When user draws something
+if canvas_result.image_data is not None:
+    img = canvas_result.image_data.astype(np.uint8)
 
-    # Smooth blending
-    result = cv2.addWeighted(image, 1, mask, 0.4, 0)
-    return result
+    # Convert RGBA → BGR
+    img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
 
-# -------------------------------
-# Skin Tone Detection
-# -------------------------------
-def detect_skin_tone(image):
-    avg_color = np.mean(image.reshape(-1, 3), axis=0)
+    edges, result = process_image(img)
 
-    if avg_color[2] > 150:
-        return "Warm"
-    elif avg_color[1] > 120:
-        return "Neutral"
-    else:
-        return "Cool"
+    st.subheader("🖼️ Output")
 
-# -------------------------------
-# Lipstick Recommendation
-# -------------------------------
-def recommend_shades(tone):
-    if tone == "Warm":
-        return ["Red ❤️", "Nude 🤎"]
-    elif tone == "Cool":
-        return ["Pink 💗", "Plum 🍇"]
-    else:
-        return ["Pink 💗", "Nude 🤎"]
+    col1, col2 = st.columns(2)
 
-# -------------------------------
-# Upload Image
-# -------------------------------
-uploaded_file = st.file_uploader("📤 Upload Your Image", type=["jpg", "png", "jpeg"])
+    with col1:
+        st.image(edges, caption="Sketch (Edges)", use_column_width=True)
 
-if uploaded_file:
-    image = Image.open(uploaded_file)
-    img = np.array(image)
-
-    # Convert properly to RGB
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    results = face_mesh.process(img_rgb)
-
-    if results.multi_face_landmarks:
-        landmarks = results.multi_face_landmarks[0].landmark
-
-        # Skin tone
-        tone = detect_skin_tone(img)
-        st.success(f"🧠 Detected Skin Tone: {tone}")
-
-        recommended = recommend_shades(tone)
-        st.info(f"💡 Recommended Shades: {', '.join(recommended)}")
-
-        # Mode selection
-        mode = st.radio("🎨 Select Mode", ["Single Shade", "Compare Shades"])
-
-        # -----------------------
-        # Single Mode
-        # -----------------------
-        if mode == "Single Shade":
-            choice = st.selectbox("💄 Choose Lipstick", list(lip_colors.keys()))
-
-            output = apply_lipstick(img.copy(), landmarks, lip_colors[choice])
-            st.image(output, caption="✨ Final Look", use_column_width=True)
-
-        # -----------------------
-        # Compare Mode
-        # -----------------------
-        else:
-            st.subheader("🔍 Compare Shades")
-
-            cols = st.columns(2)
-            color_list = list(lip_colors.keys())
-
-            for i in range(4):
-                output = apply_lipstick(img.copy(), landmarks, lip_colors[color_list[i]])
-                cols[i % 2].image(output, caption=color_list[i], use_column_width=True)
-
-    else:
-        st.error("❌ No face detected! Please upload a clear image.")
+    with col2:
+        st.image(result, caption="Converted Image", use_column_width=True)
