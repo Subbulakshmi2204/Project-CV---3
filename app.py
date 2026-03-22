@@ -14,6 +14,8 @@ st.title("💄 Virtual Lipstick Try-On App")
 # -------------------------------
 @st.cache_resource
 def load_face_mesh():
+    import mediapipe as mp  # import INSIDE function (important)
+    
     mp_face_mesh = mp.solutions.face_mesh
     return mp_face_mesh.FaceMesh(
         static_image_mode=True,
